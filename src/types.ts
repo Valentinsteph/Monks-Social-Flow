@@ -1,14 +1,4 @@
-export type StageId =
-  | 'briefe'
-  | 'retravail'
-  | 'a-valider-interne'
-  | 'concept-a-faire-valider-client'
-  | 'part-en-prod'
-  | 'prod-a-faire-valider-client'
-  | 'valide'
-  | 'programme'
-  | 'poste'
-  | 'kille';
+export type StageId = string;
 
 export type PlatformId =
   | 'instagram'
@@ -28,12 +18,37 @@ export interface PlatformConfig {
 
 export interface StageConfig {
   id: StageId;
+  boardId?: string;
   label: string;
   shortLabel?: string;
   description: string;
   accentColor: string;
   indicatorBg: string;
   borderColor: string;
+  order?: number;
+  visibility?: 'workspace';
+  ownerId?: string;
+}
+
+export interface BoardConfig {
+  id: string;
+  name: string;
+  description?: string;
+  visibility: 'workspace';
+  ownerId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectItem {
+  id: string;
+  boardId: string;
+  name: string;
+  visibility: 'workspace';
+  order: number;
+  ownerId: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Assignee {
@@ -56,8 +71,9 @@ export interface DriveFile {
 
 export interface ContentCard {
   id: string;
+  boardId?: string;
   title: string;
-  client: string; // PA (Product Area: Brand, Gemini, Pixel, Search, Partenariat Foot)
+  client: string; // PA / Projet (Brand, Gemini, Pixel, Search, Partenariat Foot, etc.)
   campaign?: string;
   stageId: StageId;
   platforms: PlatformId[];
@@ -68,6 +84,8 @@ export interface ContentCard {
   caption?: string; // Texte / Copy du post
   internalNotes?: string; // Brief, retours, specs
   assignee?: Assignee;
+  visibility?: 'workspace';
+  ownerId?: string;
   order: number;
   createdAt: string;
   updatedAt: string;

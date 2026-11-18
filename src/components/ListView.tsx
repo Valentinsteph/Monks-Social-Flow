@@ -1,5 +1,5 @@
 import React from 'react';
-import { ContentCard, StageId } from '../types';
+import { ContentCard, StageConfig, StageId } from '../types';
 import { STAGES } from '../data/constants';
 import { PlatformBadge } from './PlatformBadge';
 import { formatFrenchDate, getDateStatus, getRecentlyModifiedInfo, isAsapDate, isNoDatePlanned } from '../utils/dateUtils';
@@ -7,6 +7,7 @@ import { ExternalLink, Calendar, CalendarOff, Edit3, Trash2, FileSpreadsheet } f
 
 interface ListViewProps {
   cards: ContentCard[];
+  stages?: StageConfig[];
   recentModifiedIds?: Set<string>;
   onEditCard: (card: ContentCard) => void;
   onMoveStage: (cardId: string, targetStageId: StageId) => void;
@@ -15,6 +16,7 @@ interface ListViewProps {
 
 export const ListView: React.FC<ListViewProps> = ({
   cards,
+  stages = STAGES,
   recentModifiedIds,
   onEditCard,
   onMoveStage,
@@ -105,7 +107,7 @@ export const ListView: React.FC<ListViewProps> = ({
                         : 'bg-[#222637] border border-zinc-700 hover:border-emerald-500 text-zinc-100'
                     }`}
                   >
-                    {STAGES.map((st) => (
+                    {stages.map((st) => (
                       <option key={st.id} value={st.id} className="bg-[#181b27] text-zinc-100">
                         {st.label} {st.id === 'kille' ? '✕ (Killé)' : ''}
                       </option>

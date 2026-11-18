@@ -1,0 +1,279 @@
+{
+  "entities": {
+    "Board": {
+      "title": "Board",
+      "description": "Shared collaborative editorial workflow board (tableau)",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "visibility": {
+          "type": "string",
+          "enum": ["workspace"]
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "name", "visibility", "ownerId", "createdAt", "updatedAt"]
+    },
+    "Project": {
+      "title": "Project",
+      "description": "Product Area (PA) / Project inside a board",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "boardId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "visibility": {
+          "type": "string",
+          "enum": ["workspace"]
+        },
+        "order": {
+          "type": "number"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "boardId", "name", "visibility", "order", "ownerId", "createdAt", "updatedAt"]
+    },
+    "Column": {
+      "title": "Column",
+      "description": "Workflow stage column inside a board",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "boardId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "shortLabel": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "accentColor": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "indicatorBg": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "borderColor": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "visibility": {
+          "type": "string",
+          "enum": ["workspace"]
+        },
+        "order": {
+          "type": "number"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "boardId",
+        "label",
+        "description",
+        "accentColor",
+        "indicatorBg",
+        "borderColor",
+        "visibility",
+        "order",
+        "ownerId",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Card": {
+      "title": "Card",
+      "description": "Social content card inside a board",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "boardId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "client": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "campaign": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "stageId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "platforms": {
+          "type": "array"
+        },
+        "slideUrl": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "driveFile": {
+          "type": "object"
+        },
+        "publicationDate": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "format": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "caption": {
+          "type": "string",
+          "maxLength": 5000
+        },
+        "internalNotes": {
+          "type": "string",
+          "maxLength": 5000
+        },
+        "assignee": {
+          "type": "object"
+        },
+        "visibility": {
+          "type": "string",
+          "enum": ["workspace"]
+        },
+        "order": {
+          "type": "number"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "boardId",
+        "title",
+        "client",
+        "stageId",
+        "platforms",
+        "visibility",
+        "order",
+        "ownerId",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/boards/{boardId}": {
+      "schema": { "$ref": "#/entities/Board" },
+      "description": "Shared collaborative social workflow boards"
+    },
+    "/boards/{boardId}/projects/{projectId}": {
+      "schema": { "$ref": "#/entities/Project" },
+      "description": "Product Areas / Projects scoped to a board"
+    },
+    "/boards/{boardId}/columns/{columnId}": {
+      "schema": { "$ref": "#/entities/Column" },
+      "description": "Workflow stage columns scoped to a board"
+    },
+    "/boards/{boardId}/cards/{cardId}": {
+      "schema": { "$ref": "#/entities/Card" },
+      "description": "Social media content cards scoped to a board"
+    }
+  }
+}

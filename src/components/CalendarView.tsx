@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { ContentCard, StageId } from '../types';
+import { ContentCard, StageConfig, StageId } from '../types';
 import { STAGES } from '../data/constants';
 import { PlatformBadge } from './PlatformBadge';
 import { formatFrenchDate, getDateStatus, isAsapDate, isNoDatePlanned } from '../utils/dateUtils';
@@ -18,6 +18,7 @@ import {
 
 interface CalendarViewProps {
   cards: ContentCard[];
+  stages?: StageConfig[];
   recentModifiedIds?: Set<string>;
   onEditCard: (card: ContentCard) => void;
   onAddNewCardOnDate?: (dateString: string) => void;
@@ -81,6 +82,7 @@ function formatWeekRange(monday: Date): string {
 
 export const CalendarView: React.FC<CalendarViewProps> = ({
   cards,
+  stages = STAGES,
   recentModifiedIds,
   onEditCard,
   onAddNewCardOnDate,
@@ -470,7 +472,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5">
             {unscheduledCards.map((card) => {
-              const stage = STAGES.find((s) => s.id === card.stageId);
+              const stage = stages.find((s) => s.id === card.stageId);
               return (
                 <div
                   key={card.id}
@@ -637,7 +639,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                       </div>
                     ) : (
                       day.cards.map((card) => {
-                        const stage = STAGES.find((s) => s.id === card.stageId);
+                        const stage = stages.find((s) => s.id === card.stageId);
                         const isRecent = recentModifiedIds?.has(card.id);
 
                         return (
@@ -810,7 +812,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                   {/* Scheduled cards in this day */}
                   <div className="flex-1 flex flex-col gap-1.5 overflow-y-auto max-h-[150px] custom-scrollbar pr-0.5">
                     {cell.cards.map((card) => {
-                      const stage = STAGES.find((s) => s.id === card.stageId);
+                      const stage = stages.find((s) => s.id === card.stageId);
                       const isRecent = recentModifiedIds?.has(card.id);
 
                       return (
@@ -940,7 +942,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                     {/* Cards on this date */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pl-0 sm:pl-11">
                       {items.map((card) => {
-                        const stage = STAGES.find((s) => s.id === card.stageId);
+                        const stage = stages.find((s) => s.id === card.stageId);
                         const isRecent = recentModifiedIds?.has(card.id);
 
                         return (

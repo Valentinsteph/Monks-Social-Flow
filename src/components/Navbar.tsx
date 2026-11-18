@@ -1,18 +1,20 @@
 import React, { useState } from 'react';
-import { PlatformId, ViewMode } from '../types';
+import { BoardConfig, PlatformId, ViewMode } from '../types';
 import { PLATFORMS } from '../data/constants';
-import { 
-  Plus, 
-  Search, 
-  Kanban, 
-  ListFilter, 
+import {
+  Plus,
+  Search,
+  Kanban,
+  ListFilter,
   Calendar,
-  RotateCcw, 
+  RotateCcw,
   Download,
   Layers,
-  History,
   HardDrive,
-  X
+  LayoutGrid,
+  LogOut,
+  Check,
+  X,
 } from 'lucide-react';
 import { GoogleAuthButton } from './GoogleAuthButton';
 
@@ -25,13 +27,18 @@ interface NavbarProps {
   onSelectClient: (c: string) => void;
   clientsList: string[];
   onAddClient?: (newClient: string) => void;
+  boards: BoardConfig[];
+  activeBoardId: string;
+  onSelectBoard: (boardId: string) => void;
+  onCreateBoard: (name: string) => Promise<void>;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
   onOpenNewCard: () => void;
   onResetData: () => void;
-  onRestoreData?: () => void;
   onExportData: () => void;
   onOpenDriveExplorer?: () => void;
+  onSignOut?: () => void;
+  userDisplayName?: string;
   totalCards: number;
 }
 
@@ -43,31 +50,118 @@ export const Navbar: React.FC<NavbarProps> = ({
   selectedClient,
   onSelectClient,
   clientsList,
+  onAddClient,
+  boards,
+  activeBoardId,
+  onSelectBoard,
+  onCreateBoard,
   viewMode,
   onViewModeChange,
   onOpenNewCard,
   onResetData,
-  onRestoreData,
   onExportData,
   onOpenDriveExplorer,
+  onSignOut,
+  userDisplayName,
   totalCards,
 }) => {
+  const [isAddingBoard, setIsAddingBoard] = useState(false);
+  const [newBoardName, setNewBoardName] = useState('');
+  const [isAddingProject, setIsAddingProject] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+
+  const handleCreateBoardSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = newBoardName.trim();
+    if (!trimmed) return;
+    await onCreateBoard(trimmed);
+    setNewBoardName('');
+    setIsAddingBoard(false);
+  };
+
+  const handleAddProjectSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = newProjectName.trim();
+    if (!trimmed || !onAddClient) return;
+    onAddClient(trimmed);
+    setNewProjectName('');
+    setIsAddingProject(false);
+  };
+
   return (
     <header className="sticky top-0 z-40 bg-[#141622]/95 backdrop-blur-md border-b border-zinc-750 px-4 sm:px-6 py-3 shadow-md">
-      {/* Top row: Brand & Primary Actions */}
+      {/* Top row: Brand, Board Switcher & Primary Actions */}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-3">
-        {/* Monks Logo & App Title */}
-        <div className="flex items-center gap-3">
+        {/* Monks Logo & Board Switcher */}
+        <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-1.5 bg-[#1c2030] border border-zinc-700 px-3 py-1.5 rounded-xl shadow-sm">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
             <span className="font-extrabold tracking-tighter text-base text-white">.Monks</span>
             <span className="text-zinc-500 text-xs mx-0.5">/</span>
             <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Social Flow</span>
           </div>
 
-          <div className="hidden md:flex items-center gap-2 text-xs text-zinc-300 pl-2 border-l border-zinc-750">
-            <span>Workflow Réseaux Sociaux</span>
-            <span className="px-2 py-0.5 rounded-full bg-[#1c2030] text-zinc-200 font-mono text-[11px] border border-zinc-700">
+          {/* Shared Boards (Tableaux) Selector */}
+          <div className="flex items-center gap-1.5 pl-2 border-l border-zinc-750">
+            <LayoutGrid className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            {boards.length > 0 && (
+              <select
+                id="select-active-board"
+                value={activeBoardId}
+                onChange={(e) => onSelectBoard(e.target.value)}
+                className="bg-[#1c2030] border border-zinc-700 hover:border-emerald-500/60 rounded-xl px-2.5 py-1.5 text-xs text-zinc-100 font-semibold outline-none cursor-pointer"
+                title="Changer de tableau partagé"
+              >
+                {boards.map((b) => (
+                  <option key={b.id} value={b.id} className="bg-[#181b27] text-zinc-100">
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {isAddingBoard ? (
+              <form onSubmit={handleCreateBoardSubmit} className="flex items-center gap-1">
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="Nom du tableau..."
+                  value={newBoardName}
+                  onChange={(e) => setNewBoardName(e.target.value)}
+                  className="px-2.5 py-1 bg-[#12141e] border border-emerald-500 rounded-lg text-xs text-zinc-100 placeholder-zinc-400 outline-none w-36"
+                />
+                <button
+                  type="submit"
+                  className="p-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-zinc-950"
+                  title="Créer le tableau"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddingBoard(false);
+                    setNewBoardName('');
+                  }}
+                  className="p-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
+                  title="Annuler"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </form>
+            ) : (
+              <button
+                type="button"
+                id="btn-new-board"
+                onClick={() => setIsAddingBoard(true)}
+                title="Créer un nouveau tableau partagé"
+                className="p-1.5 rounded-xl border border-zinc-700 bg-[#1c2030] hover:bg-[#222637] text-zinc-300 hover:text-emerald-400 transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            <span className="hidden lg:inline-block px-2 py-0.5 rounded-full bg-[#1c2030] text-zinc-200 font-mono text-[11px] border border-zinc-700 ml-1">
               {totalCards} contenus
             </span>
           </div>
@@ -129,25 +223,11 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span>Export</span>
           </button>
 
-          {/* Restore Previous Cards button */}
-          {onRestoreData && (
-            <button
-              type="button"
-              id="btn-restore-cards"
-              onClick={onRestoreData}
-              title="Restaurer mes anciennes cartes (sauvegardes précédentes)"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-amber-600/40 bg-amber-950/30 hover:bg-amber-900/40 text-amber-300 hover:text-amber-200 text-xs font-medium transition-colors"
-            >
-              <History className="w-3.5 h-3.5" />
-              <span className="hidden xl:inline">Restaurer cartes</span>
-            </button>
-          )}
-
           {/* Reset Demo button */}
           <button
             type="button"
             onClick={onResetData}
-            title="Réinitialiser avec les contenus exemples"
+            title="Réinitialiser ce tableau avec les contenus exemples"
             className="p-1.5 rounded-xl border border-zinc-700 bg-[#1c2030] hover:bg-[#222637] text-zinc-400 hover:text-zinc-200 text-xs transition-colors"
           >
             <RotateCcw className="w-4 h-4" />
@@ -168,6 +248,16 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             )}
             <GoogleAuthButton onOpenDriveExplorer={onOpenDriveExplorer} />
+            {onSignOut && (
+              <button
+                type="button"
+                onClick={onSignOut}
+                title={`Déconnecter ${userDisplayName || 'le compte'}`}
+                className="p-1.5 rounded-xl border border-zinc-700 bg-[#1c2030] hover:bg-rose-950/40 text-zinc-400 hover:text-rose-300 transition-colors"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            )}
           </div>
 
           {/* Add New Content Button */}
@@ -183,7 +273,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
 
-      {/* Filter Row: Search, Platform Filter & Client Filter + Add Client */}
+      {/* Filter Row: Search, Platform Filter & PA/Project Filter */}
       <div className="flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-zinc-750">
         {/* Search */}
         <div className="relative flex-1 min-w-[180px] max-w-sm">
@@ -198,6 +288,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           />
           {searchQuery && (
             <button
+              type="button"
               onClick={() => onSearchChange('')}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200 text-xs"
             >
@@ -206,7 +297,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
         </div>
 
-        {/* Platform filters pills (Only Instagram, YouTube, X, Facebook) */}
+        {/* Platform filters pills */}
         <div className="flex items-center gap-1.5 overflow-x-auto py-1 max-w-full custom-scrollbar">
           <button
             type="button"
@@ -236,7 +327,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           ))}
         </div>
 
-        {/* PA filter dropdown */}
+        {/* PA / Project filter dropdown + quick add */}
         <div className="flex items-center gap-1.5">
           <Layers className="w-3.5 h-3.5 text-zinc-400" />
           <select
@@ -252,6 +343,48 @@ export const Navbar: React.FC<NavbarProps> = ({
               </option>
             ))}
           </select>
+
+          {onAddClient && (
+            isAddingProject ? (
+              <form onSubmit={handleAddProjectSubmit} className="flex items-center gap-1">
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="Nouveau PA..."
+                  value={newProjectName}
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                  className="px-2 py-1 bg-[#12141e] border border-emerald-500 rounded-lg text-xs text-zinc-100 placeholder-zinc-400 outline-none w-28"
+                />
+                <button
+                  type="submit"
+                  className="p-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-zinc-950"
+                  title="Ajouter le projet"
+                >
+                  <Check className="w-3 h-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddingProject(false);
+                    setNewProjectName('');
+                  }}
+                  className="p-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </form>
+            ) : (
+              <button
+                type="button"
+                id="btn-add-project"
+                onClick={() => setIsAddingProject(true)}
+                title="Ajouter un nouveau PA / Projet partagé"
+                className="p-1 rounded-lg border border-zinc-700 bg-[#181b28] hover:bg-[#222637] text-zinc-400 hover:text-emerald-400 transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            )
+          )}
         </div>
       </div>
     </header>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ContentCard, StageId } from '../types';
+import { ContentCard, StageConfig, StageId } from '../types';
 import { STAGES } from '../data/constants';
 import { PlatformBadge } from './PlatformBadge';
 import { getDateStatus, formatFrenchDate, getRecentlyModifiedInfo, isAsapDate, isNoDatePlanned } from '../utils/dateUtils';
@@ -21,6 +21,7 @@ import {
 
 interface ContentCardItemProps {
   card: ContentCard;
+  stages?: StageConfig[];
   isSessionModified?: boolean;
   onEdit: (card: ContentCard) => void;
   onMoveStage: (cardId: string, targetStageId: StageId) => void;
@@ -32,6 +33,7 @@ interface ContentCardItemProps {
 
 export const ContentCardItem: React.FC<ContentCardItemProps> = ({
   card,
+  stages = STAGES,
   isSessionModified,
   onEdit,
   onMoveStage,
@@ -42,7 +44,7 @@ export const ContentCardItem: React.FC<ContentCardItemProps> = ({
 }) => {
   const [showMenu, setShowMenu] = useState(false);
   const isKilled = card.stageId === 'kille';
-  const linearStages = STAGES.filter((s) => s.id !== 'kille');
+  const linearStages = stages.filter((s) => s.id !== 'kille');
   const currentLinearIndex = linearStages.findIndex((s) => s.id === card.stageId);
   const prevStage = currentLinearIndex > 0 ? linearStages[currentLinearIndex - 1] : null;
   const nextStage = currentLinearIndex >= 0 && currentLinearIndex < linearStages.length - 1 ? linearStages[currentLinearIndex + 1] : null;
@@ -191,7 +193,7 @@ export const ContentCardItem: React.FC<ContentCardItemProps> = ({
                 <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-zinc-400 font-semibold">
                   Déplacer vers
                 </div>
-                {STAGES.map((st) => (
+                {stages.map((st) => (
                   <button
                     key={st.id}
                     type="button"

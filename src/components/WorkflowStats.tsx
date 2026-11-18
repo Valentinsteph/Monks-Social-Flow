@@ -1,20 +1,22 @@
 import React from 'react';
-import { ContentCard, StageId } from '../types';
+import { ContentCard, StageConfig, StageId } from '../types';
 import { STAGES } from '../data/constants';
 import { CheckCircle2, Send, Clock, ShieldCheck, Ban } from 'lucide-react';
 
 interface WorkflowStatsProps {
   cards: ContentCard[];
+  stages?: StageConfig[];
   onSelectStageFilter?: (stageId: StageId | 'all') => void;
   activeStageFilter?: StageId | 'all';
 }
 
 export const WorkflowStats: React.FC<WorkflowStatsProps> = ({
   cards,
+  stages = STAGES,
   onSelectStageFilter,
   activeStageFilter = 'all',
 }) => {
-  const stageCounts = STAGES.reduce((acc, stage) => {
+  const stageCounts = stages.reduce((acc, stage) => {
     acc[stage.id] = cards.filter((c) => c.stageId === stage.id).length;
     return acc;
   }, {} as Record<StageId, number>);
@@ -27,8 +29,8 @@ export const WorkflowStats: React.FC<WorkflowStatsProps> = ({
   const postedCount = stageCounts['poste'] || 0;
   const killeCount = stageCounts['kille'] || 0;
 
-  const linearStages = STAGES.filter((s) => s.id !== 'kille');
-  const killeStage = STAGES.find((s) => s.id === 'kille');
+  const linearStages = stages.filter((s) => s.id !== 'kille');
+  const killeStage = stages.find((s) => s.id === 'kille');
 
   return (
     <div className="px-4 sm:px-6 py-2.5 bg-[#141622] border-b border-zinc-750 overflow-x-auto custom-scrollbar shadow-inner">

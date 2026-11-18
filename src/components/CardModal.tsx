@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ContentCard, PlatformId, StageId, DriveFile } from '../types';
+import { ContentCard, PlatformId, StageConfig, StageId, DriveFile } from '../types';
 import { STAGES, PLATFORMS, CONTENT_FORMATS } from '../data/constants';
 import { 
   X, 
@@ -29,6 +29,7 @@ interface CardModalProps {
   onDelete?: (cardId: string) => void;
   initialCard?: ContentCard | null;
   defaultStageId?: StageId;
+  stages?: StageConfig[];
   clientsList?: string[];
   onAddNewClient?: (clientName: string) => void;
 }
@@ -40,6 +41,7 @@ export const CardModal: React.FC<CardModalProps> = ({
   onDelete,
   initialCard,
   defaultStageId = 'briefe',
+  stages = STAGES,
   clientsList = ['Brand', 'Gemini', 'Pixel', 'Search', 'Partenariat Foot'],
   onAddNewClient,
 }) => {
@@ -315,7 +317,7 @@ export const CardModal: React.FC<CardModalProps> = ({
                     : 'border-zinc-700 focus:border-emerald-400 text-zinc-100'
                 }`}
               >
-                {STAGES.map((st) => (
+                {stages.map((st) => (
                   <option key={st.id} value={st.id} className="bg-[#181b27] text-zinc-100">
                     {st.label} {st.id === 'kille' ? '✕ (Abandonné / Annulé)' : ''}
                   </option>

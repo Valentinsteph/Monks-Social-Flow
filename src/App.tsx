@@ -4,8 +4,41 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { ContentCard, StageId, PlatformId, ViewMode } from './types';
-import { STAGES, INITIAL_CARDS, DEFAULT_CLIENTS } from './data/constants';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import {
+  BoardConfig,
+  ContentCard,
+  StageConfig,
+  StageId,
+  PlatformId,
+  ProjectItem,
+  ViewMode,
+} from './types';
+import { STAGES, DEFAULT_CLIENTS } from './data/constants';
+import {
+  auth,
+  isFirebaseConfigured,
+  missingFirebaseEnvVars,
+} from './firebase';
+import { signInWithGoogle, logout } from './services/googleAuth';
+import {
+  DEFAULT_BOARD_ID,
+  ensureDefaultBoardSeeded,
+  resetBoardToDefaults,
+  subscribeToBoards,
+  subscribeToProjects,
+  subscribeToColumns,
+  subscribeToCards,
+  createBoardInFirestore,
+  createProjectInFirestore,
+  createColumnInFirestore,
+  createCardInFirestore,
+  updateCardInFirestore,
+  moveCardStageInFirestore,
+  updateCardDateInFirestore,
+  deleteCardInFirestore,
+  importCardsBatchInFirestore,
+} from './services/firestoreService';
 import { Navbar } from './components/Navbar';
 import { WorkflowStats } from './components/WorkflowStats';
 import { Column } from './components/Column';
@@ -13,201 +46,35 @@ import { ListView } from './components/ListView';
 import { CalendarView } from './components/CalendarView';
 import { CardModal } from './components/CardModal';
 import { DriveExplorerModal } from './components/DriveExplorerModal';
-import { SlidersHorizontal, Upload, Sparkles, Clock, CheckCircle2 } from 'lucide-react';
+import {
+  SlidersHorizontal,
+  Upload,
+  Plus,
+  Loader2,
+  AlertCircle,
+  Check,
+  X,
+} from 'lucide-react';
 import { getRecentlyModifiedInfo } from './utils/dateUtils';
 
-const STORAGE_KEY = 'monks_social_flow_cards_v3';
-const CLIENTS_STORAGE_KEY = 'monks_social_flow_pas_v3';
-
-// Migration helper for any legacy stage IDs or platforms
-function sanitizeCards(rawCards: any[]): ContentCard[] {
-  const stageMap: Record<string, StageId> = {
-    'briefe': 'briefe',
-    'retravail': 'retravail',
-    'en-retravail': 'retravail',
-    'concept-a-valider': 'a-valider-interne',
-    'a-valider-interne': 'a-valider-interne',
-    'concept-valide-client': 'concept-a-faire-valider-client',
-    'concept-a-faire-valider-client': 'concept-a-faire-valider-client',
-    'part-en-prod': 'part-en-prod',
-    'prod-valide-client': 'prod-a-faire-valider-client',
-    'prod-a-faire-valider-client': 'prod-a-faire-valider-client',
-    'valide': 'valide',
-    'programme': 'programme',
-    'poste': 'poste',
-    'kille': 'kille',
-    'kill': 'kille',
-    'archive': 'kille',
-  };
-
-  const allowedPlatforms: PlatformId[] = ['instagram', 'youtube', 'x', 'facebook'];
-
-  const formatMap: Record<string, string> = {
-    'Reel 9:16': 'vidéo verticale',
-    'TikTok 9:16': 'vidéo verticale',
-    'YouTube Short': 'vidéo verticale',
-    'Vidéo Long Format': 'vidéo verticale',
-    'video verticale': 'vidéo verticale',
-    'carroussel 4:5': 'carrousel 4:5',
-    'carroussel 1:1': 'carrousel 1:1',
-    'Carrousel (4:5 / 1:1)': 'carrousel 4:5',
-    'Post Statique': 'image fixe',
-  };
-
-  return rawCards.map((c) => {
-    const stageId = stageMap[c.stageId] || 'briefe';
-    const platforms = Array.isArray(c.platforms)
-      ? (c.platforms.filter((p: any) => allowedPlatforms.includes(p)) as PlatformId[])
-      : ['instagram'];
-    const format = formatMap[c.format] || c.format || 'vidéo verticale';
-    // Strictly normalize client to one of: Brand, Gemini, Pixel, Search, Partenariat Foot
-    const client = normalizePA(c.client);
-
-    return {
-      ...c,
-      stageId,
-      platforms: platforms.length > 0 ? platforms : ['instagram'],
-      client,
-      format,
-    };
-  });
-}
-
-export function normalizePA(raw?: string): string {
-  if (!raw) return 'Brand';
-  const trimmed = raw.trim();
-  if (trimmed === 'Part. Foot.' || trimmed === 'Part. Foot' || trimmed === 'Partenariat Foot') {
-    return 'Partenariat Foot';
-  }
-  const lower = trimmed.toLowerCase();
-  if (lower.includes('foot') || lower.includes('partenariat')) return 'Partenariat Foot';
-  if (lower.includes('pixel')) return 'Pixel';
-  if (lower.includes('search')) return 'Search';
-  if (lower.includes('gemini')) return 'Gemini';
-  if (lower.includes('brand') || lower.includes('google')) return 'Brand';
-
-  const match = DEFAULT_CLIENTS.find((pa) => pa.toLowerCase() === lower);
-  if (match) return match;
-
-  return 'Brand';
-}
-
-// Helper to inspect all previous storage versions and restore any lost user cards
-function loadCardsWithRecovery(): { cards: ContentCard[]; recoveredSource: string | null } {
-  const legacyKeys = [
-    'monks_social_flow_cards_v2',
-    'monks_social_flow_cards',
-    'monks_social_flow_cards_v1',
-    'google_social_flow_cards',
-  ];
-
-  let legacyCards: ContentCard[] = [];
-  let recoveredSource: string | null = null;
-
-  // 1. Scan candidate legacy keys
-  for (const key of legacyKeys) {
-    try {
-      const raw = localStorage.getItem(key);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const sanitized = sanitizeCards(parsed);
-          if (sanitized.length > legacyCards.length || !recoveredSource) {
-            legacyCards = sanitized;
-            recoveredSource = key;
-          }
-        }
-      }
-    } catch (e) {
-      console.warn(`Error reading ${key}:`, e);
-    }
-  }
-
-  // 2. Also scan any other key in localStorage for possible saved cards
-  try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k && k !== STORAGE_KEY && !legacyKeys.includes(k) && (k.includes('monks') || k.includes('cards') || k.includes('flow'))) {
-        const raw = localStorage.getItem(k);
-        if (raw && (raw.includes('"title"') || raw.includes('"stageId"'))) {
-          try {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed) && parsed.length > 0 && parsed[0]?.title) {
-              const sanitized = sanitizeCards(parsed);
-              if (sanitized.length > legacyCards.length) {
-                legacyCards = sanitized;
-                recoveredSource = k;
-              }
-            }
-          } catch {}
-        }
-      }
-    }
-  } catch (e) {}
-
-  // 3. Check v3 current key
-  let currentCards: ContentCard[] = [];
-  try {
-    const rawV3 = localStorage.getItem(STORAGE_KEY);
-    if (rawV3) {
-      const parsed = JSON.parse(rawV3);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        currentCards = sanitizeCards(parsed);
-      }
-    }
-  } catch (e) {}
-
-  // If we found legacy cards from previous versions (e.g. monks_social_flow_cards_v2):
-  // We prioritize them because the user explicitly wants their previous cards back!
-  // And we merge any new cards that may have been created in v3 so nothing is lost.
-  if (legacyCards.length > 0) {
-    const map = new Map<string, ContentCard>();
-    // First, insert all legacy cards
-    legacyCards.forEach((c) => map.set(c.id, c));
-    // Also include any user-created card in currentCards that was added recently
-    currentCards.forEach((c) => {
-      if (!map.has(c.id)) {
-        map.set(c.id, c);
-      }
-    });
-    return {
-      cards: Array.from(map.values()),
-      recoveredSource,
-    };
-  }
-
-  if (currentCards.length > 0) {
-    return { cards: currentCards, recoveredSource: null };
-  }
-
-  return { cards: INITIAL_CARDS, recoveredSource: null };
-}
-
-function loadClientsWithRecovery(): string[] {
-  return [...DEFAULT_CLIENTS];
-}
-
 export default function App() {
-  // Load cards with automatic recovery from all previous versions
-  const [cards, setCards] = useState<ContentCard[]>(() => {
-    return loadCardsWithRecovery().cards;
-  });
+  // Auth readiness state
+  const [authReady, setAuthReady] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
-  // Client management: strictly the 5 approved PAs
-  const [customClients, setCustomClients] = useState<string[]>(DEFAULT_CLIENTS);
+  // Real-time Firestore state (boards, projects, columns, cards)
+  const [boards, setBoards] = useState<BoardConfig[]>([]);
+  const [activeBoardId, setActiveBoardId] = useState<string>(DEFAULT_BOARD_ID);
+  const [projects, setProjects] = useState<ProjectItem[]>([]);
+  const [columns, setColumns] = useState<StageConfig[]>(STAGES);
+  const [cards, setCards] = useState<ContentCard[]>([]);
+  const [isLoadingBoard, setIsLoadingBoard] = useState(true);
+  const [fatalError, setFatalError] = useState<Error | null>(null);
 
   // Track cards modified in the current session
-  const [recentModifiedIds, setRecentModifiedIds] = useState<Set<string>>(() => {
-    // Initially mark the first sample items that have recent timestamps
-    const initialSet = new Set<string>();
-    INITIAL_CARDS.forEach((c) => {
-      const info = getRecentlyModifiedInfo(c.updatedAt, false);
-      if (info?.isRecent) {
-        initialSet.add(c.id);
-      }
-    });
-    return initialSet;
-  });
+  const [recentModifiedIds, setRecentModifiedIds] = useState<Set<string>>(() => new Set());
 
   // Filters & View Mode
   const [searchQuery, setSearchQuery] = useState('');
@@ -217,6 +84,10 @@ export default function App() {
   const [onlyRecentlyModified, setOnlyRecentlyModified] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('board');
 
+  // Add column inline form state
+  const [isAddingColumn, setIsAddingColumn] = useState(false);
+  const [newColumnLabel, setNewColumnLabel] = useState('');
+
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCard, setEditingCard] = useState<ContentCard | null>(null);
@@ -225,10 +96,12 @@ export default function App() {
 
   // Toast notification
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Hidden file input for JSON import
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  if (fatalError) {
+    throw fatalError;
+  }
 
   const showToast = (message: string) => {
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
@@ -238,69 +111,102 @@ export default function App() {
     }, 3200);
   };
 
-  // Persist to localStorage whenever cards change (sync across keys to prevent any loss)
+  // 1. Firebase Auth listener
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(cards));
-      localStorage.setItem('monks_social_flow_cards_v2', JSON.stringify(cards));
-      localStorage.setItem('monks_social_flow_cards', JSON.stringify(cards));
-    } catch (e) {
-      console.error('Failed to persist cards:', e);
+    if (!isFirebaseConfigured || !auth) {
+      setAuthReady(true);
+      return;
     }
-  }, [cards]);
 
-  // Persist custom clients
-  useEffect(() => {
-    try {
-      localStorage.setItem(CLIENTS_STORAGE_KEY, JSON.stringify(customClients));
-      localStorage.setItem('monks_social_flow_clients_v2', JSON.stringify(customClients));
-      localStorage.setItem('monks_social_flow_clients', JSON.stringify(customClients));
-    } catch (e) {
-      console.error('Failed to persist clients:', e);
-    }
-  }, [customClients]);
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      setAuthReady(true);
+    });
 
-  // Check on initial load if older cards were found and notify user
-  useEffect(() => {
-    const recoveryResult = loadCardsWithRecovery();
-    if (recoveryResult.recoveredSource && recoveryResult.cards.length > 0) {
-      showToast(`${recoveryResult.cards.length} cartes récupérées depuis vos sessions précédentes (${recoveryResult.recoveredSource}).`);
-    }
+    return () => unsubscribe();
   }, []);
 
-  // Explicit restore action that scans all local backups
-  const handleRestorePreviousCards = () => {
-    const { cards: recovered, recoveredSource } = loadCardsWithRecovery();
-    if (recovered && recovered.length > 0) {
-      setCards(recovered);
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(recovered));
-        localStorage.setItem('monks_social_flow_cards_v2', JSON.stringify(recovered));
-      } catch {}
-      showToast(`${recovered.length} cartes restaurées avec succès${recoveredSource ? ` (depuis ${recoveredSource})` : ''} !`);
-    } else {
-      showToast('Aucune ancienne carte trouvée dans le stockage local.');
-    }
-  };
+  // 2. Seed default board once user is authenticated & subscribe to shared boards
+  useEffect(() => {
+    if (!isFirebaseConfigured || !authReady || !currentUser) return;
 
-  // Add new client to the list
-  const handleAddClient = (newClientName: string) => {
-    const trimmed = newClientName.trim();
-    if (!trimmed) return;
-    if (!customClients.includes(trimmed)) {
-      const updated = [...customClients, trimmed].sort();
-      setCustomClients(updated);
-      showToast(`Nouveau PA « ${trimmed} » ajouté.`);
-    }
-    setSelectedClient(trimmed);
-  };
+    let isMounted = true;
+    setIsLoadingBoard(true);
 
-  // Combined clients list: strictly the 5 approved PAs
+    ensureDefaultBoardSeeded(DEFAULT_BOARD_ID, currentUser.uid)
+      .then(() => {
+        if (isMounted) setIsLoadingBoard(false);
+      })
+      .catch((err) => {
+        if (isMounted) setFatalError(err as Error);
+      });
+
+    const unsubBoards = subscribeToBoards(
+      (fetchedBoards) => {
+        setBoards(fetchedBoards);
+        if (
+          fetchedBoards.length > 0 &&
+          !fetchedBoards.some((b) => b.id === activeBoardId)
+        ) {
+          setActiveBoardId(fetchedBoards[0].id);
+        }
+      },
+      (err) => setFatalError(err)
+    );
+
+    return () => {
+      isMounted = false;
+      unsubBoards();
+    };
+  }, [authReady, currentUser]);
+
+  // 3. Subscribe in real time (onSnapshot) to projects, columns, and cards for activeBoardId
+  useEffect(() => {
+    if (!isFirebaseConfigured || !authReady || !currentUser || !activeBoardId) return;
+
+    const unsubProjects = subscribeToProjects(
+      activeBoardId,
+      (fetchedProjects) => {
+        setProjects(fetchedProjects);
+      },
+      (err) => setFatalError(err)
+    );
+
+    const unsubColumns = subscribeToColumns(
+      activeBoardId,
+      (fetchedColumns) => {
+        if (fetchedColumns.length > 0) {
+          setColumns(fetchedColumns);
+        } else {
+          setColumns(STAGES);
+        }
+      },
+      (err) => setFatalError(err)
+    );
+
+    const unsubCards = subscribeToCards(
+      activeBoardId,
+      (fetchedCards) => {
+        setCards(fetchedCards);
+        setIsLoadingBoard(false);
+      },
+      (err) => setFatalError(err)
+    );
+
+    return () => {
+      unsubProjects();
+      unsubColumns();
+      unsubCards();
+    };
+  }, [authReady, currentUser, activeBoardId]);
+
   const allClientsList = useMemo(() => {
+    if (projects.length > 0) {
+      return projects.map((p) => p.name);
+    }
     return DEFAULT_CLIENTS;
-  }, []);
+  }, [projects]);
 
-  // Count total cards that are recently modified
   const totalRecentlyModified = useMemo(() => {
     return cards.filter((c) => {
       const info = getRecentlyModifiedInfo(c.updatedAt, recentModifiedIds.has(c.id));
@@ -308,37 +214,31 @@ export default function App() {
     }).length;
   }, [cards, recentModifiedIds]);
 
-  // Filtered cards based on search, platform, client, stage, and recent modifications
   const filteredCards = useMemo(() => {
     return cards.filter((card) => {
-      // Filter by recently modified pastille if toggled
       if (onlyRecentlyModified) {
         const info = getRecentlyModifiedInfo(card.updatedAt, recentModifiedIds.has(card.id));
         if (!info?.isRecent) return false;
       }
 
-      // Platform filter: must contain selected platform
       if (selectedPlatform !== 'all') {
         if (!card.platforms || !card.platforms.includes(selectedPlatform)) {
           return false;
         }
       }
 
-      // Client filter
       if (selectedClient !== 'all') {
         if (card.client.toLowerCase() !== selectedClient.toLowerCase()) {
           return false;
         }
       }
 
-      // Stage funnel filter
       if (stageFilter !== 'all') {
         if (card.stageId !== stageFilter) {
           return false;
         }
       }
 
-      // Text search query
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
         const matchTitle = card.title.toLowerCase().includes(query);
@@ -350,7 +250,16 @@ export default function App() {
         const matchAssignee = card.assignee?.name.toLowerCase().includes(query) || false;
         const matchDate = card.publicationDate?.toLowerCase().includes(query) || false;
 
-        if (!matchTitle && !matchClient && !matchCampaign && !matchCaption && !matchNotes && !matchFormat && !matchAssignee && !matchDate) {
+        if (
+          !matchTitle &&
+          !matchClient &&
+          !matchCampaign &&
+          !matchCaption &&
+          !matchNotes &&
+          !matchFormat &&
+          !matchAssignee &&
+          !matchDate
+        ) {
           return false;
         }
       }
@@ -359,13 +268,87 @@ export default function App() {
     });
   }, [cards, selectedPlatform, selectedClient, stageFilter, searchQuery, onlyRecentlyModified, recentModifiedIds]);
 
-  // Handlers for card manipulation
   const markAsRecentlyModified = (cardId: string) => {
     setRecentModifiedIds((prev) => {
       const next = new Set(prev);
       next.add(cardId);
       return next;
     });
+  };
+
+  // Auth actions
+  const handleGoogleLogin = async () => {
+    setIsSigningIn(true);
+    setAuthError(null);
+    try {
+      await signInWithGoogle();
+    } catch (err: any) {
+      if (err?.code !== 'auth/popup-closed-by-user') {
+        setAuthError(err?.message || 'Échec de la connexion avec Google.');
+      }
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    await logout();
+    setBoards([]);
+    setProjects([]);
+    setCards([]);
+    setColumns(STAGES);
+  };
+
+  // Board / Project / Column / Card Firestore mutations
+  const handleCreateBoard = async (name: string) => {
+    if (!currentUser) return;
+    try {
+      const newBoardId = await createBoardInFirestore(name, currentUser.uid);
+      setActiveBoardId(newBoardId);
+      setSelectedClient('all');
+      setStageFilter('all');
+      showToast(`Nouveau tableau « ${name} » créé et synchronisé.`);
+    } catch (err) {
+      setFatalError(err as Error);
+    }
+  };
+
+  const handleAddClient = async (newClientName: string) => {
+    if (!currentUser) return;
+    const trimmed = newClientName.trim();
+    if (!trimmed) return;
+    const exists = allClientsList.some((c) => c.toLowerCase() === trimmed.toLowerCase());
+    if (!exists) {
+      try {
+        await createProjectInFirestore(activeBoardId, trimmed, projects.length, currentUser.uid);
+        showToast(`Nouveau PA / Projet « ${trimmed} » synchronisé.`);
+      } catch (err) {
+        setFatalError(err as Error);
+        return;
+      }
+    }
+    setSelectedClient(trimmed);
+  };
+
+  const handleCreateColumnSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser) return;
+    const trimmed = newColumnLabel.trim();
+    if (!trimmed) return;
+    try {
+      await createColumnInFirestore(
+        activeBoardId,
+        trimmed,
+        'Étape personnalisée partagée',
+        columns.length,
+        currentUser.uid
+      );
+      setNewColumnLabel('');
+      setIsAddingColumn(false);
+      showToast(`Colonne « ${trimmed} » ajoutée.`);
+    } catch (err) {
+      setFatalError(err as Error);
+    }
   };
 
   const handleAddCardToStage = (stageId: StageId) => {
@@ -376,7 +359,7 @@ export default function App() {
 
   const handleOpenNewCard = () => {
     setEditingCard(null);
-    setDefaultStageForNew('briefe');
+    setDefaultStageForNew(columns[0]?.id || 'briefe');
     setIsModalOpen(true);
   };
 
@@ -385,44 +368,23 @@ export default function App() {
     setIsModalOpen(true);
   };
 
-  const handleSaveCard = (cardData: Partial<ContentCard>) => {
-    const now = new Date().toISOString();
+  const handleSaveCard = async (cardData: Partial<ContentCard>) => {
+    if (!currentUser) return;
 
-    if (cardData.id) {
-      // Update existing
-      setCards((prev) =>
-        prev.map((c) =>
-          c.id === cardData.id
-            ? ({ ...c, ...cardData, client: normalizePA(cardData.client || c.client), updatedAt: now } as ContentCard)
-            : c
-        )
-      );
-      markAsRecentlyModified(cardData.id);
-      showToast(`« ${cardData.title} » mis à jour (pastille activée).`);
-    } else {
-      // Create new
-      const newId = `monks-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-      const newCard: ContentCard = {
-        id: newId,
-        title: cardData.title || 'Nouveau contenu',
-        client: normalizePA(cardData.client) || 'Brand',
-        campaign: cardData.campaign,
-        stageId: cardData.stageId || 'briefe',
-        platforms: cardData.platforms || ['instagram'],
-        slideUrl: cardData.slideUrl,
-        publicationDate: cardData.publicationDate,
-        format: cardData.format || 'vidéo verticale',
-        caption: cardData.caption,
-        internalNotes: cardData.internalNotes,
-        assignee: cardData.assignee,
-        order: cards.filter((c) => c.stageId === cardData.stageId).length,
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      setCards((prev) => [newCard, ...prev]);
-      markAsRecentlyModified(newId);
-      showToast(`Nouveau contenu créé dans « ${STAGES.find((s) => s.id === newCard.stageId)?.label} »`);
+    try {
+      if (cardData.id && cards.some((c) => c.id === cardData.id)) {
+        await updateCardInFirestore(activeBoardId, cardData.id, cardData);
+        markAsRecentlyModified(cardData.id);
+        showToast(`« ${cardData.title} » mis à jour en temps réel.`);
+      } else {
+        const order = cards.filter((c) => c.stageId === (cardData.stageId || 'briefe')).length;
+        const createdId = await createCardInFirestore(activeBoardId, cardData, currentUser.uid, order);
+        markAsRecentlyModified(createdId);
+        const stageLabel = columns.find((s) => s.id === cardData.stageId)?.label || 'Briefé';
+        showToast(`Nouveau contenu créé dans « ${stageLabel} »`);
+      }
+    } catch (err) {
+      setFatalError(err as Error);
     }
   };
 
@@ -430,8 +392,8 @@ export default function App() {
     setEditingCard({
       id: '',
       title: '',
-      client: 'Brand',
-      stageId: 'briefe',
+      client: allClientsList[0] || 'Brand',
+      stageId: columns[0]?.id || 'briefe',
       platforms: ['instagram'],
       publicationDate: dateString,
       format: 'vidéo verticale',
@@ -439,81 +401,88 @@ export default function App() {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
-    setDefaultStageForNew('briefe');
+    setDefaultStageForNew(columns[0]?.id || 'briefe');
     setIsModalOpen(true);
   };
 
-  const handleUpdateCardDate = (cardId: string, newDateString: string) => {
+  const handleUpdateCardDate = async (cardId: string, newDateString: string) => {
     const card = cards.find((c) => c.id === cardId);
     if (!card) return;
-    const now = new Date().toISOString();
-    setCards((prev) =>
-      prev.map((c) =>
-        c.id === cardId ? { ...c, publicationDate: newDateString, updatedAt: now } : c
-      )
-    );
-    markAsRecentlyModified(cardId);
-    showToast(`« ${card.title} » reprogrammé au ${newDateString}`);
+    try {
+      await updateCardDateInFirestore(activeBoardId, cardId, newDateString);
+      markAsRecentlyModified(cardId);
+      showToast(`« ${card.title} » reprogrammé au ${newDateString}`);
+    } catch (err) {
+      setFatalError(err as Error);
+    }
   };
 
-  const handleMoveStage = (cardId: string, targetStageId: StageId) => {
-    const targetStage = STAGES.find((s) => s.id === targetStageId);
-    const now = new Date().toISOString();
-    setCards((prev) =>
-      prev.map((c) =>
-        c.id === cardId
-          ? { ...c, stageId: targetStageId, updatedAt: now }
-          : c
-      )
-    );
-    markAsRecentlyModified(cardId);
-    if (targetStage) {
-      showToast(`Déplacé vers « ${targetStage.label} » (marqué modifié)`);
+  const handleMoveStage = async (cardId: string, targetStageId: StageId) => {
+    const targetStage = columns.find((s) => s.id === targetStageId);
+    try {
+      await moveCardStageInFirestore(activeBoardId, cardId, targetStageId);
+      markAsRecentlyModified(cardId);
+      if (targetStage) {
+        showToast(`Déplacé vers « ${targetStage.label} »`);
+      }
+    } catch (err) {
+      setFatalError(err as Error);
     }
   };
 
   const handleCardDrop = (cardId: string, targetStageId: StageId) => {
-    handleMoveStage(cardId, targetStageId);
+    void handleMoveStage(cardId, targetStageId);
   };
 
-  const handleDuplicateCard = (card: ContentCard) => {
-    const newId = `monks-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-    const duplicate: ContentCard = {
-      ...card,
-      id: newId,
-      title: `${card.title} (Copie)`,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    setCards((prev) => [duplicate, ...prev]);
-    markAsRecentlyModified(newId);
-    showToast(`Carte dupliquée : « ${duplicate.title} »`);
+  const handleDuplicateCard = async (card: ContentCard) => {
+    if (!currentUser) return;
+    try {
+      const { id: _ignored, createdAt: _c, updatedAt: _u, ownerId: _o, ...rest } = card;
+      const newId = await createCardInFirestore(
+        activeBoardId,
+        {
+          ...rest,
+          title: `${card.title} (Copie)`,
+        },
+        currentUser.uid,
+        card.order + 1
+      );
+      markAsRecentlyModified(newId);
+      showToast(`Carte dupliquée : « ${card.title} (Copie) »`);
+    } catch (err) {
+      setFatalError(err as Error);
+    }
   };
 
-  const handleDeleteCard = (cardId: string) => {
+  const handleDeleteCard = async (cardId: string) => {
     const cardToDelete = cards.find((c) => c.id === cardId);
-    setCards((prev) => prev.filter((c) => c.id !== cardId));
-    setRecentModifiedIds((prev) => {
-      const next = new Set(prev);
-      next.delete(cardId);
-      return next;
-    });
-    showToast(`« ${cardToDelete?.title || 'Contenu'} » supprimé.`);
+    try {
+      await deleteCardInFirestore(activeBoardId, cardId);
+      setRecentModifiedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(cardId);
+        return next;
+      });
+      showToast(`« ${cardToDelete?.title || 'Contenu'} » supprimé.`);
+    } catch (err) {
+      setFatalError(err as Error);
+    }
   };
 
-  const handleResetData = () => {
-    if (window.confirm('Voulez-vous réinitialiser le tableau avec les contenus de démonstration pour les PA (Brand, Gemini, Pixel, Search, Partenariat Foot) ?')) {
-      setCards(INITIAL_CARDS);
-      setCustomClients(DEFAULT_CLIENTS);
-      const initialSet = new Set<string>();
-      INITIAL_CARDS.forEach((c) => {
-        const info = getRecentlyModifiedInfo(c.updatedAt, false);
-        if (info?.isRecent) initialSet.add(c.id);
-      });
-      setRecentModifiedIds(initialSet);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_CARDS));
-      localStorage.setItem(CLIENTS_STORAGE_KEY, JSON.stringify(DEFAULT_CLIENTS));
-      showToast('Tableau réinitialisé avec les 5 PA par défaut.');
+  const handleResetData = async () => {
+    if (!currentUser) return;
+    if (
+      window.confirm(
+        'Voulez-vous réinitialiser ce tableau Firestore partagé avec les contenus de démonstration par défaut ?'
+      )
+    ) {
+      try {
+        await resetBoardToDefaults(activeBoardId, currentUser.uid);
+        setRecentModifiedIds(new Set());
+        showToast('Tableau Firestore réinitialisé avec les contenus par défaut.');
+      } catch (err) {
+        setFatalError(err as Error);
+      }
     }
   };
 
@@ -521,7 +490,10 @@ export default function App() {
     const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(cards, null, 2));
     const downloadAnchor = document.createElement('a');
     downloadAnchor.setAttribute('href', dataStr);
-    downloadAnchor.setAttribute('download', `monks-social-flow-export-${new Date().toISOString().split('T')[0]}.json`);
+    downloadAnchor.setAttribute(
+      'download',
+      `monks-social-flow-export-${new Date().toISOString().split('T')[0]}.json`
+    );
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
@@ -529,29 +501,131 @@ export default function App() {
   };
 
   const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!currentUser) return;
     const fileReader = new FileReader();
     if (e.target.files && e.target.files[0]) {
       fileReader.readAsText(e.target.files[0], 'UTF-8');
-      fileReader.onload = (event) => {
+      fileReader.onload = async (event) => {
         try {
           const imported = JSON.parse(event.target?.result as string);
           if (Array.isArray(imported)) {
-            const sanitized = sanitizeCards(imported);
-            setCards(sanitized);
-            showToast(`${sanitized.length} contenus importés avec succès.`);
+            const count = await importCardsBatchInFirestore(activeBoardId, imported, currentUser.uid);
+            showToast(`${count} contenus importés dans Firestore.`);
           } else {
             showToast('Format de fichier invalide.');
           }
-        } catch {
-          showToast('Erreur lors de la lecture du fichier JSON.');
+        } catch (err) {
+          console.error(err);
+          showToast('Erreur lors de l’importation JSON.');
         }
       };
     }
   };
 
+  // Screen 1: Missing VITE_FIREBASE_* environment variables
+  if (!isFirebaseConfigured) {
+    return (
+      <div className="min-h-screen bg-[#0f1117] text-zinc-100 flex items-center justify-center p-6">
+        <div className="max-w-xl w-full bg-[#181b27] border border-zinc-700 rounded-2xl p-6 shadow-2xl space-y-4">
+          <div className="flex items-center gap-2.5">
+            <span className="w-3 h-3 rounded-full bg-amber-400" />
+            <h1 className="text-lg font-bold text-white">Configuration Firebase requise</h1>
+          </div>
+          <p className="text-xs text-zinc-300 leading-relaxed">
+            La synchronisation temps réel Firestore est initialisée exclusivement à partir des variables d'environnement Vite suivantes :
+          </p>
+          <ul className="bg-[#12141e] border border-zinc-750 rounded-xl p-3.5 space-y-1.5 font-mono text-xs text-emerald-300">
+            {missingFirebaseEnvVars.map((envKey) => (
+              <li key={envKey}>{envKey}</li>
+            ))}
+          </ul>
+          <p className="text-[11px] text-zinc-400">
+            Définissez ces variables dans votre environnement (ou Secrets AI Studio / fichier <code className="text-zinc-200">.env</code>), puis rechargez l'application.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Screen 2: Auth initialization loading
+  if (!authReady) {
+    return (
+      <div className="min-h-screen bg-[#0f1117] text-zinc-100 flex items-center justify-center p-6">
+        <div className="flex items-center gap-3 text-sm text-zinc-300">
+          <Loader2 className="w-5 h-5 animate-spin text-emerald-400" />
+          <span>Initialisation de l'espace collaboratif...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Screen 3: Google Sign-In Gate (before attaching Firestore onSnapshot listeners)
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-[#0f1117] text-zinc-100 flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-[#161824] border border-zinc-700 rounded-2xl p-8 shadow-2xl text-center space-y-6">
+          <div className="inline-flex items-center gap-2 bg-[#1c2030] border border-zinc-700 px-4 py-2 rounded-xl shadow-sm">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+            <span className="font-extrabold tracking-tighter text-lg text-white">.Monks</span>
+            <span className="text-zinc-500 text-xs mx-0.5">/</span>
+            <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Social Flow</span>
+          </div>
+
+          <div className="space-y-2">
+            <h1 className="text-xl font-bold text-white tracking-tight">
+              Espace collaboratif temps réel
+            </h1>
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              Connectez-vous avec votre compte Google pour accéder aux tableaux, projets, colonnes et contenus synchronisés en direct avec l'équipe.
+            </p>
+          </div>
+
+          {authError && (
+            <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-700/70 text-xs text-rose-200 flex items-center gap-2 text-left">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>{authError}</span>
+            </div>
+          )}
+
+          <button
+            type="button"
+            id="btn-workspace-google-signin"
+            onClick={handleGoogleLogin}
+            disabled={isSigningIn}
+            className="w-full flex items-center justify-center gap-3 px-5 py-3 rounded-xl bg-white hover:bg-zinc-100 text-zinc-950 font-bold text-sm shadow-lg transition-all disabled:opacity-60"
+          >
+            {isSigningIn ? (
+              <Loader2 className="w-4 h-4 animate-spin text-zinc-800" />
+            ) : (
+              <svg className="w-4 h-4 shrink-0" viewBox="0 0 48 48">
+                <path
+                  fill="#EA4335"
+                  d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+                />
+                <path
+                  fill="#4285F4"
+                  d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
+                />
+              </svg>
+            )}
+            <span>{isSigningIn ? 'Connexion en cours...' : 'Se connecter avec Google'}</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#0f1117] text-zinc-100 flex flex-col selection:bg-emerald-500 selection:text-black">
-      {/* Hidden file input for import */}
+      {/* Hidden file input for JSON import */}
       <input
         type="file"
         ref={fileInputRef}
@@ -570,19 +644,29 @@ export default function App() {
         onSelectClient={setSelectedClient}
         clientsList={allClientsList}
         onAddClient={handleAddClient}
+        boards={boards}
+        activeBoardId={activeBoardId}
+        onSelectBoard={(boardId) => {
+          setActiveBoardId(boardId);
+          setSelectedClient('all');
+          setStageFilter('all');
+        }}
+        onCreateBoard={handleCreateBoard}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         onOpenNewCard={handleOpenNewCard}
         onResetData={handleResetData}
-        onRestoreData={handleRestorePreviousCards}
         onExportData={handleExportData}
         onOpenDriveExplorer={() => setIsDriveExplorerOpen(true)}
+        onSignOut={handleSignOut}
+        userDisplayName={currentUser.displayName || currentUser.email || undefined}
         totalCards={cards.length}
       />
 
       {/* Validation Pipeline Summary Bar */}
       <WorkflowStats
         cards={filteredCards}
+        stages={columns}
         activeStageFilter={stageFilter}
         onSelectStageFilter={setStageFilter}
       />
@@ -590,7 +674,6 @@ export default function App() {
       {/* Sub-bar: Quick toggle for recently modified pastille & active filter reset */}
       <div className="px-4 sm:px-6 py-2 bg-[#12141f] border-b border-zinc-750 flex flex-wrap items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-3">
-          {/* Recently modified quick filter pastille */}
           <button
             type="button"
             id="toggle-recently-modified"
@@ -611,8 +694,11 @@ export default function App() {
 
           <span className="text-zinc-600 hidden sm:inline">|</span>
 
-          {/* Active filters summary */}
-          {(searchQuery || selectedPlatform !== 'all' || selectedClient !== 'all' || stageFilter !== 'all' || onlyRecentlyModified) ? (
+          {searchQuery ||
+          selectedPlatform !== 'all' ||
+          selectedClient !== 'all' ||
+          stageFilter !== 'all' ||
+          onlyRecentlyModified ? (
             <div className="flex items-center gap-2 text-emerald-400 font-semibold">
               <SlidersHorizontal className="w-3.5 h-3.5" />
               <span>
@@ -621,13 +707,17 @@ export default function App() {
             </div>
           ) : (
             <span className="text-zinc-400 hidden sm:inline font-medium">
-              PA actifs : <span className="text-emerald-400 font-semibold">Brand, Gemini, Pixel, Search, Partenariat Foot</span>
+              PA actifs :{' '}
+              <span className="text-emerald-400 font-semibold">{allClientsList.join(', ')}</span>
             </span>
           )}
         </div>
 
-        {/* Clear all filters button */}
-        {(searchQuery || selectedPlatform !== 'all' || selectedClient !== 'all' || stageFilter !== 'all' || onlyRecentlyModified) && (
+        {(searchQuery ||
+          selectedPlatform !== 'all' ||
+          selectedClient !== 'all' ||
+          stageFilter !== 'all' ||
+          onlyRecentlyModified) && (
           <button
             type="button"
             onClick={() => {
@@ -646,50 +736,110 @@ export default function App() {
 
       {/* Main Board Canvas */}
       <main className="flex-1 p-4 sm:p-6 overflow-x-auto custom-scrollbar">
-        {viewMode === 'board' && (
-          <div className="flex gap-4 items-start min-w-max pb-4">
-            {STAGES.map((stage) => {
-              const stageCards = filteredCards.filter((c) => c.stageId === stage.id);
-              return (
-                <Column
-                  key={stage.id}
-                  stage={stage}
-                  cards={stageCards}
+        {isLoadingBoard ? (
+          <div className="h-64 flex items-center justify-center gap-3 text-sm text-zinc-400">
+            <Loader2 className="w-5 h-5 animate-spin text-emerald-400" />
+            <span>Chargement du tableau partagé...</span>
+          </div>
+        ) : (
+          <>
+            {viewMode === 'board' && (
+              <div className="flex gap-4 items-start min-w-max pb-4">
+                {columns.map((stage) => {
+                  const stageCards = filteredCards.filter((c) => c.stageId === stage.id);
+                  return (
+                    <Column
+                      key={stage.id}
+                      stage={stage}
+                      stages={columns}
+                      cards={stageCards}
+                      recentModifiedIds={recentModifiedIds}
+                      onAddCardToStage={handleAddCardToStage}
+                      onEditCard={handleEditCard}
+                      onMoveStage={handleMoveStage}
+                      onDuplicateCard={handleDuplicateCard}
+                      onDeleteCard={handleDeleteCard}
+                      onCardDrop={handleCardDrop}
+                    />
+                  );
+                })}
+
+                {/* Add New Column control */}
+                <div className="w-72 shrink-0">
+                  {isAddingColumn ? (
+                    <form
+                      onSubmit={handleCreateColumnSubmit}
+                      className="p-3.5 bg-[#161824] border border-emerald-500/60 rounded-2xl space-y-2.5 shadow-md"
+                    >
+                      <input
+                        type="text"
+                        autoFocus
+                        placeholder="Nom de la colonne..."
+                        value={newColumnLabel}
+                        onChange={(e) => setNewColumnLabel(e.target.value)}
+                        className="w-full px-3 py-2 bg-[#12141e] border border-zinc-700 focus:border-emerald-400 rounded-xl text-xs text-zinc-100 placeholder-zinc-400 outline-none"
+                      />
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="submit"
+                          className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-bold text-xs"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Ajouter</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsAddingColumn(false);
+                            setNewColumnLabel('');
+                          }}
+                          className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <button
+                      type="button"
+                      id="btn-add-column"
+                      onClick={() => setIsAddingColumn(true)}
+                      className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-2xl border border-dashed border-zinc-700 hover:border-emerald-500/60 bg-[#161824]/60 hover:bg-[#1a1d2c] text-xs font-semibold text-zinc-300 hover:text-emerald-300 transition-colors"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Ajouter une colonne</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {viewMode === 'list' && (
+              <div className="max-w-7xl mx-auto">
+                <ListView
+                  cards={filteredCards}
+                  stages={columns}
                   recentModifiedIds={recentModifiedIds}
-                  onAddCardToStage={handleAddCardToStage}
                   onEditCard={handleEditCard}
                   onMoveStage={handleMoveStage}
-                  onDuplicateCard={handleDuplicateCard}
                   onDeleteCard={handleDeleteCard}
-                  onCardDrop={handleCardDrop}
                 />
-              );
-            })}
-          </div>
-        )}
+              </div>
+            )}
 
-        {viewMode === 'list' && (
-          <div className="max-w-7xl mx-auto">
-            <ListView
-              cards={filteredCards}
-              recentModifiedIds={recentModifiedIds}
-              onEditCard={handleEditCard}
-              onMoveStage={handleMoveStage}
-              onDeleteCard={handleDeleteCard}
-            />
-          </div>
-        )}
-
-        {viewMode === 'calendar' && (
-          <div className="max-w-7xl mx-auto">
-            <CalendarView
-              cards={filteredCards}
-              recentModifiedIds={recentModifiedIds}
-              onEditCard={handleEditCard}
-              onAddNewCardOnDate={handleAddNewCardOnDate}
-              onUpdateCardDate={handleUpdateCardDate}
-            />
-          </div>
+            {viewMode === 'calendar' && (
+              <div className="max-w-7xl mx-auto">
+                <CalendarView
+                  cards={filteredCards}
+                  stages={columns}
+                  recentModifiedIds={recentModifiedIds}
+                  onEditCard={handleEditCard}
+                  onAddNewCardOnDate={handleAddNewCardOnDate}
+                  onUpdateCardDate={handleUpdateCardDate}
+                />
+              </div>
+            )}
+          </>
         )}
       </main>
 
@@ -698,7 +848,9 @@ export default function App() {
         <div className="flex items-center gap-2">
           <span className="font-bold text-zinc-300">.Monks Social Flow</span>
           <span>•</span>
-          <span>Pipeline : Briefé → En retravail → À valider en interne → À faire valider par le client → En Prod → Attente Validation Chloé → VALIDÉ → Programmé → Posté | Killé</span>
+          <span>
+            Pipeline : {columns.map((c) => c.shortLabel || c.label).join(' → ')}
+          </span>
         </div>
 
         <div className="flex items-center gap-4 text-[11px]">
@@ -723,6 +875,7 @@ export default function App() {
         onDelete={handleDeleteCard}
         initialCard={editingCard}
         defaultStageId={defaultStageForNew}
+        stages={columns}
         clientsList={allClientsList}
         onAddNewClient={handleAddClient}
       />
@@ -734,13 +887,14 @@ export default function App() {
         onAttachFile={(file) => {
           setIsDriveExplorerOpen(false);
           setEditingCard({
-            id: `card-${Date.now()}`,
+            id: '',
             title: file.name.replace(/\.[^/.]+$/, ''),
-            client: 'Brand',
-            stageId: 'briefe',
+            client: allClientsList[0] || 'Brand',
+            stageId: columns[0]?.id || 'briefe',
             platforms: ['instagram'],
             slideUrl: file.webViewLink,
             driveFile: file,
+            order: 0,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           } as ContentCard);

@@ -5,6 +5,7 @@ import { Plus, Info, Ban } from 'lucide-react';
 
 interface ColumnProps {
   stage: StageConfig;
+  stages?: StageConfig[];
   cards: ContentCard[];
   recentModifiedIds?: Set<string>;
   onAddCardToStage: (stageId: StageId) => void;
@@ -17,6 +18,7 @@ interface ColumnProps {
 
 export const Column: React.FC<ColumnProps> = ({
   stage,
+  stages,
   cards,
   recentModifiedIds,
   onAddCardToStage,
@@ -132,6 +134,7 @@ export const Column: React.FC<ColumnProps> = ({
             <ContentCardItem
               key={card.id}
               card={card}
+              stages={stages}
               isSessionModified={recentModifiedIds?.has(card.id)}
               onEdit={onEditCard}
               onMoveStage={onMoveStage}

@@ -1,13 +1,11 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
-  getAuth,
   signInWithPopup,
   GoogleAuthProvider,
   onAuthStateChanged,
   User,
   signOut as fbSignOut,
 } from 'firebase/auth';
-import firebaseConfig from '../../firebase-applet-config.json';
+import { auth, isFirebaseConfigured } from '../firebase';
 
 export const SCOPES = [
   'https://www.googleapis.com/auth/drive',
@@ -25,36 +23,39 @@ export const SCOPES = [
   'https://www.googleapis.com/auth/drive.scripts',
 ];
 
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-
-const provider = new GoogleAuthProvider();
-SCOPES.forEach((scope) => {
-  provider.addScope(scope);
-});
-// Prompt to select account
-provider.setCustomParameters({
+const workspaceProvider = new GoogleAuthProvider();
+workspaceProvider.setCustomParameters({
   prompt: 'select_account',
 });
 
-// Flag to indicate if we are in the middle of a sign-in flow.
+const driveProvider = new GoogleAuthProvider();
+SCOPES.forEach((scope) => {
+  driveProvider.addScope(scope);
+});
+driveProvider.setCustomParameters({
+  prompt: 'select_account',
+});
+
 let isSigningIn = false;
-// Cache the access token in memory (never localStorage per security rules)
+// Cache the Drive OAuth access token in memory only
 let cachedAccessToken: string | null = null;
 let currentUser: User | null = null;
 
-// Initialize auth state listener. Call this on app load.
 export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
   onAuthFailure?: () => void
 ) => {
-  return onAuthStateChanged(auth, async (user: User | null) => {
+  if (!auth || !isFirebaseConfigured) {
+    if (onAuthFailure) onAuthFailure();
+    return () => {};
+  }
+
+  return onAuthStateChanged(auth, (user: User | null) => {
     currentUser = user;
     if (user) {
       if (cachedAccessToken) {
         if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
       } else if (!isSigningIn) {
-        // User is logged in to Firebase, but access token needs popup re-auth for Drive OAuth scopes
         if (onAuthFailure) onAuthFailure();
       }
     } else {
@@ -65,11 +66,32 @@ export const initAuth = (
   });
 };
 
-// Must be called from a button click or user interaction
-export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
+// Standard Google Login for shared Firestore workspace access
+export const signInWithGoogle = async (): Promise<User | null> => {
+  if (!auth) {
+    throw new Error('Firebase Auth non initialisé.');
+  }
   try {
     isSigningIn = true;
-    const result = await signInWithPopup(auth, provider);
+    const result = await signInWithPopup(auth, workspaceProvider);
+    currentUser = result.user;
+    return result.user;
+  } catch (error) {
+    console.error('Google Sign-in error:', error);
+    throw error;
+  } finally {
+    isSigningIn = false;
+  }
+};
+
+// Google Login with Drive OAuth scopes for Google Drive Picker / Explorer
+export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
+  if (!auth) {
+    throw new Error('Firebase Auth non initialisé.');
+  }
+  try {
+    isSigningIn = true;
+    const result = await signInWithPopup(auth, driveProvider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
       throw new Error('Failed to get access token from Google Auth');
@@ -78,8 +100,8 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     cachedAccessToken = credential.accessToken;
     currentUser = result.user;
     return { user: result.user, accessToken: cachedAccessToken };
-  } catch (error: any) {
-    console.error('Google Sign-in error:', error);
+  } catch (error) {
+    console.error('Google Drive Sign-in error:', error);
     throw error;
   } finally {
     isSigningIn = false;
@@ -91,11 +113,14 @@ export const getAccessToken = async (): Promise<string | null> => {
 };
 
 export const getCurrentUser = (): User | null => {
-  return currentUser || auth.currentUser;
+  return currentUser || auth?.currentUser || null;
 };
 
 export const logout = async () => {
+  if (!auth) return;
   await fbSignOut(auth);
   cachedAccessToken = null;
   currentUser = null;
 };
+
+export { auth };

@@ -3,6 +3,7 @@
   "appId": "1:1009384044320:web:fbffd8133a6ac1a2fd0945",
   "apiKey": "AIzaSyA82XqNhxl4tVmkwlcDXDTnRgHwY1kdA6Y",
   "authDomain": "trello-monks.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-monkssocialflow-df05e854-273f-4439-a5ba-40b614b2ff89",
   "storageBucket": "trello-monks.firebasestorage.app",
   "messagingSenderId": "1009384044320",
   "measurementId": "",

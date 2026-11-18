@@ -1,0 +1,345 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ---------------------------------------------------------
+    // Global Primitives & Helpers
+    // ---------------------------------------------------------
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function canAccessBoard(boardId) {
+      return exists(/databases/$(database)/documents/boards/$(boardId))
+        && (
+          get(/databases/$(database)/documents/boards/$(boardId)).data.visibility == 'workspace'
+          || get(/databases/$(database)/documents/boards/$(boardId)).data.ownerId == request.auth.uid
+        );
+    }
+
+    function canAccessBoardAfter(boardId) {
+      return existsAfter(/databases/$(database)/documents/boards/$(boardId))
+        && (
+          getAfter(/databases/$(database)/documents/boards/$(boardId)).data.visibility == 'workspace'
+          || getAfter(/databases/$(database)/documents/boards/$(boardId)).data.ownerId == request.auth.uid
+        );
+    }
+
+    // ---------------------------------------------------------
+    // Entity Validation Blueprints (Create + Update)
+    // ---------------------------------------------------------
+    function isValidBoard(data, boardId) {
+      return data.keys().hasAll(['id', 'name', 'visibility', 'ownerId', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'name', 'description', 'visibility', 'ownerId', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.id == boardId
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && (!('description' in data) || (data.description is string && data.description.size() <= 500))
+        && data.visibility is string && data.visibility == 'workspace'
+        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidProject(data, boardId, projectId) {
+      return data.keys().hasAll(['id', 'boardId', 'name', 'visibility', 'order', 'ownerId', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'boardId', 'name', 'visibility', 'order', 'ownerId', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.id == projectId
+        && isValidId(data.boardId)
+        && data.boardId == boardId
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 80
+        && data.visibility is string && data.visibility == 'workspace'
+        && data.order is number && data.order >= 0 && data.order <= 10000
+        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidColumn(data, boardId, columnId) {
+      return data.keys().hasAll([
+          'id', 'boardId', 'label', 'description', 'accentColor',
+          'indicatorBg', 'borderColor', 'visibility', 'order',
+          'ownerId', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'boardId', 'label', 'shortLabel', 'description', 'accentColor',
+          'indicatorBg', 'borderColor', 'visibility', 'order',
+          'ownerId', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.id == columnId
+        && isValidId(data.boardId)
+        && data.boardId == boardId
+        && data.label is string && data.label.size() >= 1 && data.label.size() <= 100
+        && (!('shortLabel' in data) || (data.shortLabel is string && data.shortLabel.size() <= 60))
+        && data.description is string && data.description.size() <= 300
+        && data.accentColor is string && data.accentColor.size() <= 64
+        && data.indicatorBg is string && data.indicatorBg.size() <= 64
+        && data.borderColor is string && data.borderColor.size() <= 120
+        && data.visibility is string && data.visibility == 'workspace'
+        && data.order is number && data.order >= 0 && data.order <= 10000
+        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAssignee(assignee) {
+      return assignee is map
+        && assignee.keys().hasAll(['name', 'initials'])
+        && assignee.keys().hasOnly(['name', 'role', 'initials'])
+        && assignee.name is string && assignee.name.size() >= 1 && assignee.name.size() <= 100
+        && assignee.initials is string && assignee.initials.size() >= 1 && assignee.initials.size() <= 10
+        && (!('role' in assignee) || (assignee.role is string && assignee.role.size() <= 80));
+    }
+
+    function isValidDriveFile(driveFile) {
+      return driveFile is map
+        && driveFile.keys().hasAll(['id', 'name', 'mimeType'])
+        && driveFile.keys().hasOnly([
+          'id', 'name', 'mimeType', 'webViewLink', 'webContentLink',
+          'iconLink', 'thumbnailLink', 'modifiedTime', 'size'
+        ])
+        && driveFile.id is string && driveFile.id.size() >= 1 && driveFile.id.size() <= 200
+        && driveFile.name is string && driveFile.name.size() >= 1 && driveFile.name.size() <= 300
+        && driveFile.mimeType is string && driveFile.mimeType.size() >= 1 && driveFile.mimeType.size() <= 200
+        && (!('webViewLink' in driveFile) || (driveFile.webViewLink is string && driveFile.webViewLink.size() <= 1000))
+        && (!('webContentLink' in driveFile) || (driveFile.webContentLink is string && driveFile.webContentLink.size() <= 1000))
+        && (!('iconLink' in driveFile) || (driveFile.iconLink is string && driveFile.iconLink.size() <= 1000))
+        && (!('thumbnailLink' in driveFile) || (driveFile.thumbnailLink is string && driveFile.thumbnailLink.size() <= 1000))
+        && (!('modifiedTime' in driveFile) || (driveFile.modifiedTime is string && driveFile.modifiedTime.size() <= 80))
+        && (!('size' in driveFile) || (driveFile.size is string && driveFile.size.size() <= 40));
+    }
+
+    function isValidCard(data, boardId, cardId) {
+      return data.keys().hasAll([
+          'id', 'boardId', 'title', 'client', 'stageId', 'platforms',
+          'visibility', 'order', 'ownerId', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'boardId', 'title', 'client', 'campaign', 'stageId', 'platforms',
+          'slideUrl', 'driveFile', 'publicationDate', 'format', 'caption',
+          'internalNotes', 'assignee', 'visibility', 'order',
+          'ownerId', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.id == cardId
+        && isValidId(data.boardId)
+        && data.boardId == boardId
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
+        && data.client is string && data.client.size() >= 1 && data.client.size() <= 80
+        && (!('campaign' in data) || (data.campaign is string && data.campaign.size() <= 120))
+        && isValidId(data.stageId)
+        && data.platforms is list
+        && data.platforms.size() >= 1
+        && data.platforms.size() <= 4
+        && data.platforms.hasOnly(['instagram', 'youtube', 'x', 'facebook'])
+        && (!('slideUrl' in data) || (data.slideUrl is string && data.slideUrl.size() <= 1000))
+        && (!('driveFile' in data) || isValidDriveFile(data.driveFile))
+        && (!('publicationDate' in data) || (data.publicationDate is string && data.publicationDate.size() <= 40))
+        && (!('format' in data) || (data.format is string && data.format.size() <= 80))
+        && (!('caption' in data) || (data.caption is string && data.caption.size() <= 5000))
+        && (!('internalNotes' in data) || (data.internalNotes is string && data.internalNotes.size() <= 5000))
+        && (!('assignee' in data) || isValidAssignee(data.assignee))
+        && data.visibility is string && data.visibility == 'workspace'
+        && data.order is number && data.order >= 0 && data.order <= 100000
+        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // ---------------------------------------------------------
+    // Boards Collection
+    // ---------------------------------------------------------
+    match /boards/{boardId} {
+      allow get: if isEmailVerified()
+        && isValidId(boardId)
+        && (existing().visibility == 'workspace' || existing().ownerId == request.auth.uid);
+
+      allow list: if isEmailVerified()
+        && (resource.data.visibility == 'workspace' || resource.data.ownerId == request.auth.uid);
+
+      allow create: if isEmailVerified()
+        && isValidId(boardId)
+        && isValidBoard(incoming(), boardId)
+        && incoming().ownerId == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isEmailVerified()
+        && isValidId(boardId)
+        && isValidBoard(incoming(), boardId)
+        && (existing().visibility == 'workspace' || existing().ownerId == request.auth.uid)
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'updatedAt']);
+
+      allow delete: if isEmailVerified()
+        && isValidId(boardId)
+        && existing().ownerId == request.auth.uid
+        && boardId != 'monks-social-flow';
+
+      // -------------------------------------------------------
+      // Projects (PAs) Subcollection
+      // -------------------------------------------------------
+      match /projects/{projectId} {
+        allow get: if isEmailVerified()
+          && isValidId(boardId)
+          && isValidId(projectId)
+          && (existing().visibility == 'workspace' || existing().ownerId == request.auth.uid)
+          && canAccessBoard(boardId);
+
+        allow list: if isEmailVerified()
+          && (resource.data.visibility == 'workspace' || resource.data.ownerId == request.auth.uid);
+
+        allow create: if isEmailVerified()
+          && isValidId(boardId)
+          && isValidId(projectId)
+          && isValidProject(incoming(), boardId, projectId)
+          && incoming().ownerId == request.auth.uid
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && canAccessBoardAfter(boardId);
+
+        allow update: if isEmailVerified()
+          && isValidId(boardId)
+          && isValidId(projectId)
+          && isValidProject(incoming(), boardId, projectId)
+          && canAccessBoard(boardId)
+          && (existing().visibility == 'workspace' || existing().ownerId == request.auth.uid)
+          && incoming().ownerId == existing().ownerId
+          && incoming().boardId == existing().boardId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'order', 'updatedAt']);
+
+        allow delete: if isEmailVerified()
+          && isValidId(boardId)
+          && isValidId(projectId)
+          && canAccessBoard(boardId)
+          && (existing().visibility == 'workspace' || existing().ownerId == request.auth.uid);
+      }
+
+      // -------------------------------------------------------
+      // Columns (Stages) Subcollection
+      // -------------------------------------------------------
+      match /columns/{columnId} {
+        allow get: if isEmailVerified()
+          && isValidId(boardId)
+          && isValidId(columnId)
+          && (existing().visibility == 'workspace' || existing().ownerId == request.auth.uid)
+          && canAccessBoard(boardId);
+
+        allow list: if isEmailVerified()
+          && (resource.data.visibility == 'workspace' || resource.data.ownerId == request.auth.uid);
+
+        allow create: if isEmailVerified()
+          && isValidId(boardId)
+          && isValidId(columnId)
+          && isValidColumn(incoming(), boardId, columnId)
+          && incoming().ownerId == request.auth.uid
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && canAccessBoardAfter(boardId);
+
+        allow update: if isEmailVerified()
+          && isValidId(boardId)
+          && isValidId(columnId)
+          && isValidColumn(incoming(), boardId, columnId)
+          && canAccessBoard(boardId)
+          && (existing().visibility == 'workspace' || existing().ownerId == request.auth.uid)
+          && incoming().ownerId == existing().ownerId
+          && incoming().boardId == existing().boardId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'label', 'shortLabel', 'description', 'accentColor',
+            'indicatorBg', 'borderColor', 'order', 'updatedAt'
+          ]);
+
+        allow delete: if isEmailVerified()
+          && isValidId(boardId)
+          && isValidId(columnId)
+          && canAccessBoard(boardId)
+          && (existing().visibility == 'workspace' || existing().ownerId == request.auth.uid);
+      }
+
+      // -------------------------------------------------------
+      // Cards Subcollection
+      // -------------------------------------------------------
+      match /cards/{cardId} {
+        allow get: if isEmailVerified()
+          && isValidId(boardId)
+          && isValidId(cardId)
+          && (existing().visibility == 'workspace' || existing().ownerId == request.auth.uid)
+          && canAccessBoard(boardId);
+
+        allow list: if isEmailVerified()
+          && (resource.data.visibility == 'workspace' || resource.data.ownerId == request.auth.uid);
+
+        allow create: if isEmailVerified()
+          && isValidId(boardId)
+          && isValidId(cardId)
+          && isValidCard(incoming(), boardId, cardId)
+          && incoming().ownerId == request.auth.uid
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && canAccessBoardAfter(boardId);
+
+        allow update: if isEmailVerified()
+          && isValidId(boardId)
+          && isValidId(cardId)
+          && isValidCard(incoming(), boardId, cardId)
+          && canAccessBoard(boardId)
+          && (existing().visibility == 'workspace' || existing().ownerId == request.auth.uid)
+          && incoming().ownerId == existing().ownerId
+          && incoming().boardId == existing().boardId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            // Action 1: Move card across columns / reorder
+            incoming().diff(existing()).affectedKeys().hasOnly(['stageId', 'order', 'updatedAt'])
+            ||
+            // Action 2: Reschedule publication date (Calendar drag & drop)
+            incoming().diff(existing()).affectedKeys().hasOnly(['publicationDate', 'updatedAt'])
+            ||
+            // Action 3: Edit card details in modal
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'client', 'campaign', 'stageId', 'platforms',
+              'slideUrl', 'driveFile', 'publicationDate', 'format',
+              'caption', 'internalNotes', 'assignee', 'order', 'updatedAt'
+            ])
+          );
+
+        allow delete: if isEmailVerified()
+          && isValidId(boardId)
+          && isValidId(cardId)
+          && canAccessBoard(boardId)
+          && (existing().visibility == 'workspace' || existing().ownerId == request.auth.uid);
+      }
+    }
+  }
+}
