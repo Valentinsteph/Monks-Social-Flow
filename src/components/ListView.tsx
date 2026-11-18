@@ -2,8 +2,8 @@ import React from 'react';
 import { ContentCard, StageId } from '../types';
 import { STAGES } from '../data/constants';
 import { PlatformBadge } from './PlatformBadge';
-import { formatFrenchDate, getDateStatus, getRecentlyModifiedInfo } from '../utils/dateUtils';
-import { ExternalLink, Calendar, Edit3, Trash2, FileSpreadsheet } from 'lucide-react';
+import { formatFrenchDate, getDateStatus, getRecentlyModifiedInfo, isAsapDate, isNoDatePlanned } from '../utils/dateUtils';
+import { ExternalLink, Calendar, CalendarOff, Edit3, Trash2, FileSpreadsheet } from 'lucide-react';
 
 interface ListViewProps {
   cards: ContentCard[];
@@ -150,16 +150,24 @@ export const ListView: React.FC<ListViewProps> = ({
                   {card.publicationDate ? (
                     <div className="flex flex-col gap-0.5">
                       <div className="flex items-center gap-1.5 text-zinc-200 font-medium">
-                        <Calendar className="w-3.5 h-3.5 text-zinc-400" />
-                        {card.publicationDate.toUpperCase() === 'ASAP' ? (
+                        {isNoDatePlanned(card.publicationDate) ? (
+                          <CalendarOff className="w-3.5 h-3.5 text-zinc-400" />
+                        ) : (
+                          <Calendar className="w-3.5 h-3.5 text-zinc-400" />
+                        )}
+                        {isAsapDate(card.publicationDate) ? (
                           <span className="text-[11px] px-2 py-0.5 rounded border font-bold bg-rose-950/90 text-rose-300 border-rose-600/70 animate-pulse">
                             ⚡ ASAP
+                          </span>
+                        ) : isNoDatePlanned(card.publicationDate) ? (
+                          <span className="text-[11px] px-2 py-0.5 rounded border font-medium bg-zinc-800/90 text-zinc-300 border-zinc-600/70">
+                            Pas de date prévue
                           </span>
                         ) : (
                           <span>{formatFrenchDate(card.publicationDate)}</span>
                         )}
                       </div>
-                      {dateStatus && card.publicationDate.toUpperCase() !== 'ASAP' && (
+                      {dateStatus && !isAsapDate(card.publicationDate) && !isNoDatePlanned(card.publicationDate) && (
                         <span className={`inline-block w-fit text-[10px] px-1.5 py-0.2 rounded border font-semibold ${dateStatus.badgeClass}`}>
                           {dateStatus.label}
                         </span>

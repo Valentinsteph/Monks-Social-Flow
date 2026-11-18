@@ -1,6 +1,24 @@
+export const NO_DATE_PLANNED_VALUE = 'Pas de date prévue';
+
+export function isAsapDate(dateString?: string): boolean {
+  return Boolean(dateString && dateString.trim().toUpperCase() === 'ASAP');
+}
+
+export function isNoDatePlanned(dateString?: string): boolean {
+  if (!dateString) return false;
+  const normalized = dateString.trim().toLowerCase();
+  return (
+    normalized === 'pas de date prévue' ||
+    normalized === 'pas de date prevue' ||
+    normalized === 'no_date' ||
+    normalized === 'none'
+  );
+}
+
 export function formatFrenchDate(dateString?: string): string {
   if (!dateString) return '';
-  if (dateString.trim().toUpperCase() === 'ASAP') return 'ASAP';
+  if (isAsapDate(dateString)) return 'ASAP';
+  if (isNoDatePlanned(dateString)) return NO_DATE_PLANNED_VALUE;
   try {
     const date = new Date(dateString);
     if (isNaN(date.getTime())) return dateString;
@@ -22,10 +40,19 @@ export function getDateStatus(dateString?: string): {
 } | null {
   if (!dateString) return null;
 
-  if (dateString.trim().toUpperCase() === 'ASAP') {
+  if (isAsapDate(dateString)) {
     return {
       label: 'ASAP',
       badgeClass: 'bg-rose-500/20 text-rose-300 border-rose-500/50 font-bold animate-pulse',
+      isPast: false,
+      isToday: false,
+    };
+  }
+
+  if (isNoDatePlanned(dateString)) {
+    return {
+      label: NO_DATE_PLANNED_VALUE,
+      badgeClass: 'bg-zinc-800/90 text-zinc-300 border-zinc-600/70',
       isPast: false,
       isToday: false,
     };

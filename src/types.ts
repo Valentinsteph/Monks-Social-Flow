@@ -63,7 +63,7 @@ export interface ContentCard {
   platforms: PlatformId[];
   slideUrl?: string;
   driveFile?: DriveFile;
-  publicationDate?: string; // YYYY-MM-DD ou "ASAP"
+  publicationDate?: string; // YYYY-MM-DD, "ASAP" ou "Pas de date prévue"
   format?: string; // e.g. "vidéo verticale", "carrousel 4:5", "carrousel 1:1", "image fixe", "pure copy", etc.
   caption?: string; // Texte / Copy du post
   internalNotes?: string; // Brief, retours, specs

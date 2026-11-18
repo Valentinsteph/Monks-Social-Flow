@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import { ContentCard, StageId } from '../types';
 import { STAGES } from '../data/constants';
 import { PlatformBadge } from './PlatformBadge';
-import { getDateStatus, formatFrenchDate, getRecentlyModifiedInfo } from '../utils/dateUtils';
+import { getDateStatus, formatFrenchDate, getRecentlyModifiedInfo, isAsapDate, isNoDatePlanned } from '../utils/dateUtils';
 import { 
   ExternalLink, 
-  Calendar, 
+  Calendar,
+  CalendarOff,
   ChevronLeft, 
   ChevronRight, 
   MoreHorizontal, 
@@ -279,16 +280,24 @@ export const ContentCardItem: React.FC<ContentCardItemProps> = ({
         {card.publicationDate && (
           <div className="flex items-center justify-between text-xs">
             <div className="flex items-center gap-1.5 text-zinc-300">
-              <Calendar className="w-3.5 h-3.5 text-zinc-400" />
+              {isNoDatePlanned(card.publicationDate) ? (
+                <CalendarOff className="w-3.5 h-3.5 text-zinc-400" />
+              ) : (
+                <Calendar className="w-3.5 h-3.5 text-zinc-400" />
+              )}
               <span className="text-[11px] font-medium">
-                {card.publicationDate.toUpperCase() === 'ASAP'
+                {isAsapDate(card.publicationDate) || isNoDatePlanned(card.publicationDate)
                   ? 'Publication :'
                   : formatFrenchDate(card.publicationDate)}
               </span>
             </div>
-            {card.publicationDate.toUpperCase() === 'ASAP' ? (
+            {isAsapDate(card.publicationDate) ? (
               <span className="text-[10px] px-2 py-0.5 rounded border font-bold bg-rose-950/90 text-rose-300 border-rose-600/70 animate-pulse flex items-center gap-1">
                 ⚡ ASAP
+              </span>
+            ) : isNoDatePlanned(card.publicationDate) ? (
+              <span className="text-[10px] px-2 py-0.5 rounded border font-medium bg-zinc-800/90 text-zinc-300 border-zinc-600/70">
+                Pas de date prévue
               </span>
             ) : (
               dateStatus && (

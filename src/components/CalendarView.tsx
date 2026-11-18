@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { ContentCard, StageId } from '../types';
 import { STAGES } from '../data/constants';
 import { PlatformBadge } from './PlatformBadge';
-import { formatFrenchDate, getDateStatus } from '../utils/dateUtils';
+import { formatFrenchDate, getDateStatus, isAsapDate, isNoDatePlanned } from '../utils/dateUtils';
 import {
   ChevronLeft,
   ChevronRight,
@@ -491,8 +491,18 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                       <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/70 border border-emerald-800/60 px-1.5 py-0.5 rounded">
                         {card.client}
                       </span>
-                      <span className="text-[10px] font-bold text-rose-300 bg-rose-950/90 border border-rose-700/60 px-1.5 py-0.5 rounded">
-                        {card.publicationDate ? card.publicationDate : 'Sans date'}
+                      <span
+                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                          isAsapDate(card.publicationDate)
+                            ? 'text-rose-300 bg-rose-950/90 border-rose-700/60'
+                            : 'text-zinc-300 bg-zinc-800/90 border-zinc-600/60'
+                        }`}
+                      >
+                        {isAsapDate(card.publicationDate)
+                          ? '⚡ ASAP'
+                          : isNoDatePlanned(card.publicationDate)
+                          ? 'Pas de date prévue'
+                          : card.publicationDate || 'Sans date'}
                       </span>
                     </div>
 
