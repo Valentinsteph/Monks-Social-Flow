@@ -1,0 +1,6 @@
+{
+  "name": "Monks Social Flow",
+  "description": "Tableau de validation et suivi des contenus réseaux sociaux pour Monks.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
